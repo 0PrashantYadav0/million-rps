@@ -1,6 +1,8 @@
-# million-rps
+# Million Request Per Seconds
 
 High-throughput Todo API backend: public `GET /todos`, JWT-protected create/update/delete, with Redis cache and Kafka queue so the database is not a bottleneck.
+
+![Uploading go.gif…]()
 
 ## Features
 
