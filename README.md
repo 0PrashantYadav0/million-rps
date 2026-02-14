@@ -2,7 +2,7 @@
 
 High-throughput Todo API backend: public `GET /todos`, JWT-protected create/update/delete, with Redis cache and Kafka queue so the database is not a bottleneck.
 
-![Uploading go.gif…]()
+![go](https://github.com/user-attachments/assets/7a2c6a9d-2278-4667-8d0b-b5a5f3de0020)
 
 ## Features
 
