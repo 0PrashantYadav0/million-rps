@@ -5,9 +5,10 @@ import (
 	"database/sql"
 	"sync"
 
-	_ "github.com/lib/pq"
 	"million-rps/internal/config"
 	"million-rps/pkg/logger"
+
+	_ "github.com/lib/pq"
 )
 
 var (
@@ -39,4 +40,30 @@ func DB(ctx context.Context) *sql.DB {
 // InitDB initializes the DB pool and returns it (for backward compatibility / main).
 func InitDB(ctx context.Context) *sql.DB {
 	return DB(ctx)
+}
+
+// MigrateOrCreateSchema creates the todos table and indexes if they do not exist.
+func MigrateOrCreateSchema(ctx context.Context) error {
+	db := DB(ctx)
+	if db == nil {
+		return nil
+	}
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS todos (
+			id          TEXT PRIMARY KEY,
+			title       TEXT NOT NULL,
+			description TEXT,
+			completed   BOOLEAN NOT NULL DEFAULT FALSE,
+			user_id     TEXT NOT NULL,
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);
+		CREATE INDEX IF NOT EXISTS idx_todos_user_id ON todos(user_id);
+		CREATE INDEX IF NOT EXISTS idx_todos_created_at ON todos(created_at DESC);
+	`)
+	if err != nil {
+		return err
+	}
+	logger.Info(ctx, "Schema ensured (todos table)")
+	return nil
 }
