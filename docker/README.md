@@ -56,6 +56,16 @@ docker compose -f docker/docker-compose.yml ps
    go run ./cmd
    ```
 
+## Multi-instance (scale test)
+
+To run multiple API replicas behind an Nginx load balancer:
+
+```bash
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.scale.yml up -d --build
+```
+
+This starts 5 API replicas + Nginx LB on port 8080. Benchmark: `hey -z 30s -c 200 http://localhost:8080/todos?limit=100`.
+
 ## Stop
 
 ```bash
