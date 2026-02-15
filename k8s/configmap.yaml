@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: million-rps-config
+  labels:
+    app: million-rps
+data:
+  HTTP_PORT: "8080"
+  REDIS_POOL_SIZE: "2000"
+  DB_POOL_SIZE: "500"
+  CACHE_TTL_SEC: "300"
+  KAFKA_TODO_TOPIC: "todo-commands"
+  KAFKA_PARTITIONS: "32"

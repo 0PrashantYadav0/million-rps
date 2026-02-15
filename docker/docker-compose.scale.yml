@@ -1,0 +1,40 @@
+# Multi-instance deployment with load balancer for high RPS testing.
+# Usage: docker compose -f docker/docker-compose.yml -f docker/docker-compose.scale.yml up -d
+# Benchmark: curl http://localhost:8080/todos?limit=100; hey -z 30s -c 200 http://localhost:8080/todos?limit=100
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    deploy:
+      replicas: 5
+    environment:
+      DATABASE_URL: postgres://app:appsecret@postgres:5432/million_rps?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BROKERS: kafka:9092
+      JWT_SECRET: secret
+      REDIS_POOL_SIZE: "2000"
+      DB_POOL_SIZE: "500"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  lb:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx-lb.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api

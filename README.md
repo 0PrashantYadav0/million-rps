@@ -130,9 +130,64 @@ hey -z 30s -c 100 -m GET http://localhost:8080/todos
 **Using `hey`:** `go install github.com/rakyll/hey@latest`  
 **Using `autocannon`:** If you see `libsimdjson` error, run `brew reinstall simdjson && brew reinstall node`.
 
-## Scaling to high RPS
+## Scaling to high RPS (10k → 100k → 1M)
 
-- **Single box:** Use `GET /todos?limit=100` (or similar) for high RPS; full list is limited by payload size and Redis/network.
-- **Horizontal:** Run multiple API instances behind a load balancer; use a shared Redis (or cluster).
-- Run multiple worker instances (same Kafka consumer group) for write throughput.
-- Tune `DB_POOL_SIZE`, `REDIS_POOL_SIZE`, and Kafka partitions per load.
+### Health endpoints (for load balancers & K8s)
+
+- **GET /health** — Liveness: returns 200 if process is alive.
+- **GET /ready** — Readiness: returns 200 if DB and Redis are reachable.
+
+### Docker Compose multi-instance (local scale test)
+
+Run 5 API replicas behind Nginx load balancer:
+
+```bash
+# 1. Start deps + API replicas + LB
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.scale.yml up -d --build
+
+# 2. Run schema (once)
+psql "postgres://app:appsecret@localhost:5432/million_rps?sslmode=disable" -f internal/database/schema.sql
+
+# 3. Seed and benchmark
+go run ./scripts/seed
+./scripts/benchmark.sh http://localhost:8080 30 200
+```
+
+### Kubernetes (production scale)
+
+See **`k8s/README.md`** for full instructions. Summary:
+
+```bash
+# Build image
+docker build -t million-rps:latest .
+
+# Deploy (requires K8s cluster + Postgres/Redis/Kafka)
+kubectl create namespace million-rps
+kubectl apply -f k8s/secret.yaml -f k8s/configmap.yaml -n million-rps
+kubectl apply -f k8s/deployment.yaml -f k8s/hpa.yaml -n million-rps
+kubectl patch svc million-rps-api -n million-rps -p '{"spec":{"type":"LoadBalancer"}}'
+
+# Benchmark (replace LB_IP with your load balancer)
+hey -z 30s -c 200 "http://<LB_IP>/todos?limit=100"
+```
+
+- **Deployment:** 10 replicas by default.
+- **HPA:** Auto-scales 5–50 pods on CPU/memory.
+- **Ingress:** Optional; see `k8s/ingress.yaml` for nginx/ALB.
+
+### Path to 1M RPS
+
+| Layer | Approach |
+|-------|----------|
+| **API** | 15–25 replicas (K8s HPA or fixed); each ~50k–100k RPS for small payloads |
+| **Load balancer** | HAProxy, Envoy, or cloud LB; ensure high connection capacity |
+| **Redis** | Redis Cluster or high-memory instance; 10+ Gbps network |
+| **Payload** | Use `GET /todos?limit=100` for maximum RPS |
+
+### Benchmark script
+
+```bash
+./scripts/benchmark.sh [base_url] [duration_sec] [concurrency]
+# Example:
+./scripts/benchmark.sh http://localhost:8080 60 500
+```

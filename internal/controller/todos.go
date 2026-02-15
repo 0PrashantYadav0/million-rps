@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"million-rps/internal/cache"
+	"million-rps/internal/database"
 	"million-rps/internal/models"
 	"million-rps/internal/queue"
 	"million-rps/internal/repository"
@@ -79,6 +80,31 @@ func GetTodos(c *gin.Context) {
 
 func isContextErr(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// Health returns 200 if the process is alive. Used by load balancers.
+func Health(c *gin.Context) {
+	c.String(http.StatusOK, "OK")
+}
+
+// Ready returns 200 if DB and Redis are reachable. Used by K8s readiness probes.
+func Ready(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+	defer cancel()
+	if cache.Client(ctx) == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "redis unavailable"})
+		return
+	}
+	db := database.DB(ctx)
+	if db == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "database unavailable"})
+		return
+	}
+	if err := db.PingContext(ctx); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "database ping failed"})
+		return
+	}
+	c.String(http.StatusOK, "OK")
 }
 
 // CreateTodo (auth): validates body, publishes to Kafka, returns 202 Accepted.

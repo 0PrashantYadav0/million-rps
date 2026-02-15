@@ -12,6 +12,10 @@ func Router() *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Recovery())
 
+	// Health for load balancers and K8s probes
+	router.GET("/health", controller.Health)
+	router.GET("/ready", controller.Ready)
+
 	// Public: no auth
 	router.GET("/todos", controller.GetTodos)
 
