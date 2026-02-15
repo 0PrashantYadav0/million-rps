@@ -24,7 +24,7 @@ var (
 
 func init() {
 	defaultLogger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level:     slog.LevelDebug,
 		AddSource: false,
 	}))
 }

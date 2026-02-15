@@ -17,10 +17,10 @@ import (
 // Call at startup; if it fails (e.g. no broker or topic exists), app still runs.
 func EnsureTopic(ctx context.Context) {
 	cfg := config.Get()
-	if len(cfg.KafkaBrokers) == 0 {
+	if cfg.KafkaBrokers == "" {
 		return
 	}
-	conn, err := kafka.Dial("tcp", cfg.KafkaBrokers[0])
+	conn, err := kafka.Dial("tcp", cfg.KafkaBrokers)
 	if err != nil {
 		logger.Debug(ctx, "Kafka dial for topic creation failed", "error", err)
 		return
@@ -59,7 +59,7 @@ func Producer(ctx context.Context) *kafka.Writer {
 	wOnce.Do(func() {
 		cfg := config.Get()
 		writer = &kafka.Writer{
-			Addr:         kafka.TCP(cfg.KafkaBrokers...),
+			Addr:         kafka.TCP(cfg.KafkaBrokers),
 			Topic:        cfg.KafkaTopic,
 			Balancer:     &kafka.LeastBytes{},
 			BatchSize:    100,
@@ -92,9 +92,4 @@ func PublishTodoCommand(ctx context.Context, cmd *models.TodoCommand) error {
 // Topic returns the todo commands topic name.
 func Topic() string {
 	return config.Get().KafkaTopic
-}
-
-// Brokers returns Kafka broker addresses.
-func Brokers() []string {
-	return config.Get().KafkaBrokers
 }

@@ -5,10 +5,11 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/google/uuid"
 	"million-rps/internal/database"
 	"million-rps/internal/models"
 	"million-rps/pkg/logger"
+
+	"github.com/google/uuid"
 )
 
 // GetAll returns all todos from the database.
@@ -20,7 +21,9 @@ func GetAll(ctx context.Context) ([]models.Todo, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT id, title, description, completed, user_id, created_at, updated_at FROM todos ORDER BY created_at DESC`)
 	if err != nil {
-		logger.Error(ctx, "Repository GetTodos failed", "error", err)
+		if ctx.Err() == nil {
+			logger.Error(ctx, "Repository GetTodos failed", "error", err)
+		}
 		return nil, err
 	}
 	defer rows.Close()
@@ -28,7 +31,49 @@ func GetAll(ctx context.Context) ([]models.Todo, error) {
 	for rows.Next() {
 		var t models.Todo
 		if err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.Completed, &t.UserID, &t.CreatedAt, &t.UpdatedAt); err != nil {
-			logger.Error(ctx, "Repository scan todo failed", "error", err)
+			if ctx.Err() == nil {
+				logger.Error(ctx, "Repository scan todo failed", "error", err)
+			}
+			return nil, err
+		}
+		todos = append(todos, t)
+	}
+	return todos, rows.Err()
+}
+
+// GetRange returns up to `limit` todos from offset (for pagination). Use limit=0 for no limit (returns all).
+func GetRange(ctx context.Context, limit, offset int) ([]models.Todo, error) {
+	db := database.DB(ctx)
+	if db == nil {
+		return nil, sql.ErrNoRows
+	}
+	query := `SELECT id, title, description, completed, user_id, created_at, updated_at FROM todos ORDER BY created_at DESC`
+	args := []interface{}{}
+	if limit > 0 {
+		query += ` LIMIT $1 OFFSET $2`
+		args = append(args, limit, offset)
+	}
+	var rows *sql.Rows
+	var err error
+	if len(args) > 0 {
+		rows, err = db.QueryContext(ctx, query, args...)
+	} else {
+		rows, err = db.QueryContext(ctx, query)
+	}
+	if err != nil {
+		if ctx.Err() == nil {
+			logger.Error(ctx, "Repository GetRange failed", "error", err)
+		}
+		return nil, err
+	}
+	defer rows.Close()
+	var todos []models.Todo
+	for rows.Next() {
+		var t models.Todo
+		if err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.Completed, &t.UserID, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			if ctx.Err() == nil {
+				logger.Error(ctx, "Repository scan todo failed", "error", err)
+			}
 			return nil, err
 		}
 		todos = append(todos, t)
