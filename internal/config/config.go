@@ -15,7 +15,7 @@ type Config struct {
 	RedisURL        string
 	RedisPoolSize   int
 	CacheTTL        int // seconds
-	KafkaBrokers    []string
+	KafkaBrokers    string
 	KafkaTopic      string
 	KafkaPartitions int
 	WorkerPoolSize  int
@@ -32,16 +32,16 @@ func Get() *Config {
 	cfgOnce.Do(func() {
 		cfg = &Config{
 			HTTPPort:        getEnv("HTTP_PORT", "8080"),
-			DatabaseURL:     os.Getenv("DATABASE_URL"),
-			DBPoolSize:      getIntEnv("DB_POOL_SIZE", 100),
+			DatabaseURL:     getEnv("DATABASE_URL", ""),
+			DBPoolSize:      getIntEnv("DB_POOL_SIZE", 5000),
 			RedisURL:        getEnv("REDIS_URL", "redis://localhost:6379/0"),
-			RedisPoolSize:   getIntEnv("REDIS_POOL_SIZE", 500),
+			RedisPoolSize:   getIntEnv("REDIS_POOL_SIZE", 5000),
 			CacheTTL:        getIntEnv("CACHE_TTL_SEC", 300),
-			KafkaBrokers:    getSliceEnv("KAFKA_BROKERS", "localhost:9092"),
+			KafkaBrokers:    getEnv("KAFKA_BROKERS", "localhost:9092"),
 			KafkaTopic:      getEnv("KAFKA_TODO_TOPIC", "todo-commands"),
-			KafkaPartitions: getIntEnv("KAFKA_PARTITIONS", 16),
-			WorkerPoolSize:  getIntEnv("WORKER_POOL_SIZE", 32),
-			JWTSecret:       os.Getenv("JWT_SECRET"),
+			KafkaPartitions: getIntEnv("KAFKA_PARTITIONS", 32),
+			WorkerPoolSize:  getIntEnv("WORKER_POOL_SIZE", 128),
+			JWTSecret:       getEnv("JWT_SECRET", ""),
 		}
 	})
 	return cfg
@@ -66,44 +66,4 @@ func getIntEnv(key string, defaultVal int) int {
 		}
 	}
 	return defaultVal
-}
-
-func getSliceEnv(key, defaultVal string) []string {
-	if v := os.Getenv(key); v != "" {
-		var out []string
-		for _, s := range splitTrim(v, ",") {
-			if s != "" {
-				out = append(out, s)
-			}
-		}
-		if len(out) > 0 {
-			return out
-		}
-	}
-	return []string{defaultVal}
-}
-
-func splitTrim(s, sep string) []string {
-	var out []string
-	start := 0
-	for i := 0; i <= len(s)-len(sep); i++ {
-		if s[i:i+len(sep)] == sep {
-			out = append(out, trim(s[start:i]))
-			start = i + len(sep)
-			i += len(sep) - 1
-		}
-	}
-	out = append(out, trim(s[start:]))
-	return out
-}
-
-func trim(s string) string {
-	i, j := 0, len(s)
-	for i < j && (s[i] == ' ' || s[i] == '\t') {
-		i++
-	}
-	for j > i && (s[j-1] == ' ' || s[j-1] == '\t') {
-		j--
-	}
-	return s[i:j]
 }

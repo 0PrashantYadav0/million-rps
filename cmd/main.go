@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +20,8 @@ import (
 )
 
 func main() {
+	loadEnvFile(".env")
+
 	ctx := context.Background()
 	config.Get()
 
@@ -25,6 +29,10 @@ func main() {
 	db := database.InitDB(ctx)
 	if db == nil {
 		logger.Error(ctx, "Database not available; exiting")
+		os.Exit(1)
+	}
+	if err := database.MigrateOrCreateSchema(ctx); err != nil {
+		logger.Error(ctx, "Schema migration failed", "error", err)
 		os.Exit(1)
 	}
 
@@ -63,4 +71,34 @@ func main() {
 		logger.Error(ctx, "Server shutdown error", "error", err)
 	}
 	logger.Info(ctx, "Server stopped")
+}
+
+// loadEnvFile reads a .env file and sets env vars (only if not already set).
+func loadEnvFile(path string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		idx := strings.Index(line, "=")
+		if idx <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:idx])
+		val := strings.TrimSpace(line[idx+1:])
+		if strings.HasPrefix(val, `"`) && strings.HasSuffix(val, `"`) {
+			val = strings.Trim(val, `"`)
+		} else if strings.HasPrefix(val, "'") && strings.HasSuffix(val, "'") {
+			val = strings.Trim(val, "'")
+		}
+		if key != "" && os.Getenv(key) == "" {
+			_ = os.Setenv(key, val)
+		}
+	}
 }

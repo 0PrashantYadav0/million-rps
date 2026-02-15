@@ -1,7 +1,11 @@
 package controller
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"million-rps/internal/cache"
@@ -12,23 +16,69 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"golang.org/x/sync/singleflight"
 )
 
-// GetTodos is the public handler: returns all todos (cache-first, then DB).
+var getTodosGroup singleflight.Group
+
+// GetTodos is the public handler: returns todos as JSON (cache-first as raw bytes for max throughput). Supports ?limit=N for pagination (smaller payload = higher RPS).
 func GetTodos(c *gin.Context) {
 	ctx := c.Request.Context()
-	if todos, ok := cache.GetTodos(ctx); ok {
-		c.JSON(http.StatusOK, todos)
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "0"))
+
+	if limit > 0 {
+		if b, ok := cache.GetRawTodosLimit(ctx, limit); ok {
+			c.Data(http.StatusOK, "application/json", b)
+			return
+		}
+		key := "todos:limit:" + strconv.Itoa(limit)
+		v, err, _ := getTodosGroup.Do(key, func() (interface{}, error) {
+			todos, err := repository.GetRange(context.Background(), limit, 0)
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(todos)
+		})
+		if err != nil {
+			if ctx.Err() != nil || isContextErr(err) {
+				return
+			}
+			logger.Error(ctx, "GetTodos repository failed", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get todos"})
+			return
+		}
+		b := v.([]byte)
+		c.Data(http.StatusOK, "application/json", b)
+		go cache.SetRawTodosLimitAsync(limit, b)
 		return
 	}
-	todos, err := repository.GetAll(ctx)
+
+	if b, ok := cache.GetRawTodos(ctx); ok {
+		c.Data(http.StatusOK, "application/json", b)
+		return
+	}
+	v, err, _ := getTodosGroup.Do("todos", func() (interface{}, error) {
+		todos, err := repository.GetAll(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(todos)
+	})
 	if err != nil {
+		if ctx.Err() != nil || isContextErr(err) {
+			return
+		}
 		logger.Error(ctx, "GetTodos repository failed", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get todos"})
 		return
 	}
-	cache.SetTodos(ctx, todos)
-	c.JSON(http.StatusOK, todos)
+	b := v.([]byte)
+	c.Data(http.StatusOK, "application/json", b)
+	go cache.SetRawTodosAsync(b)
+}
+
+func isContextErr(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // CreateTodo (auth): validates body, publishes to Kafka, returns 202 Accepted.
