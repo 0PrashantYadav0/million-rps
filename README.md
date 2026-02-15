@@ -15,11 +15,11 @@ High-throughput Todo API backend: public `GET /todos`, JWT-protected create/upda
 ## Prerequisites
 
 - Go 1.21+
-- PostgreSQL
-- Redis
-- Kafka
+- PostgreSQL, Redis, Kafka (or use the [Docker setup](#local-development-with-docker) below)
 
 ## Environment
+
+The app loads a **`.env`** file from the current working directory at startup (if present). You can copy `docker/.env.example` to `.env` and set `DATABASE_URL`, `JWT_SECRET`, etc. Otherwise set environment variables in your shell or deployment.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -42,6 +42,47 @@ Run once against your PostgreSQL:
 psql "$DATABASE_URL" -f internal/database/schema.sql
 ```
 
+## Seed data (10,000 todos)
+
+From the project root (with `.env` or `DATABASE_URL` set):
+
+```bash
+go run ./scripts/seed
+```
+
+This inserts 10,000 todos with `user_id=seed-user`. Useful for load testing or local dev.
+
+## Local development with Docker
+
+Dependencies (PostgreSQL, Redis, Kafka) can be run locally with Docker Compose. All files live in the **`docker/`** folder.
+
+| File | Purpose |
+|------|---------|
+| `docker/docker-compose.yml` | Starts Postgres, Redis, and Kafka (KRaft) |
+| `docker/.env.example` | Example env vars to connect the app to these services |
+| `docker/README.md` | Full instructions for the Docker setup |
+
+**Quick start:**
+
+```bash
+# 1. Start PostgreSQL, Redis, and Kafka
+docker compose -f docker/docker-compose.yml up -d
+
+# 2. Set env (or copy docker/.env.example to .env and source it)
+export DATABASE_URL="postgres://app:appsecret@localhost:5432/million_rps?sslmode=disable"
+export REDIS_URL="redis://localhost:6379/0"
+export KAFKA_BROKERS="localhost:9092"
+export JWT_SECRET="your-secret"
+
+# 3. Apply schema once
+psql "$DATABASE_URL" -f internal/database/schema.sql
+
+# 4. Run the app
+go run ./cmd
+```
+
+Stop dependencies: `docker compose -f docker/docker-compose.yml down`. See **`docker/README.md`** for more details.
+
 ## Run
 
 ```bash
@@ -56,13 +97,42 @@ go build -o app ./cmd && ./app
 
 ## API
 
-- **GET /todos** (public) — List all todos. Served from Redis when warm.
+- **GET /todos** (public) — List all todos. Served from Redis as raw JSON when warm (max throughput).
+- **GET /todos?limit=N** (public) — List first N todos (pagination). Smaller payload = higher RPS; use for load testing (e.g. `?limit=100`).
 - **POST /todos** (auth) — Body: `{"title":"...","description":"..."}`. Returns `202` with `id` (queued).
 - **PUT /todos/:id** (auth) — Body: `{"title":"...","description":"...","completed":true}`. Returns `202`.
 - **DELETE /todos/:id** (auth) — Returns `202`.
 
+## Benchmarking (10k → 100k → 1M RPS)
+
+**1. Warm the cache** (one request so later requests are served from Redis):
+```bash
+curl -s http://localhost:8080/todos?limit=100 > /dev/null
+# or for full list:
+curl -s http://localhost:8080/todos > /dev/null
+```
+
+**2. Target ~10k–100k RPS on one machine** — use a **small payload** so Redis and network aren’t the bottleneck:
+```bash
+# Small response (~100 items) = high RPS (aim for 10k–50k+ req/sec on a good box)
+hey -z 30s -c 200 -m GET "http://localhost:8080/todos?limit=100"
+# or autocannon:
+autocannon -c 200 -d 30 -p 20 "http://localhost:8080/todos?limit=100"
+```
+
+**3. Full list** (large JSON, ~10k items) — expect lower RPS due to payload size; warm cache first:
+```bash
+hey -z 30s -c 100 -m GET http://localhost:8080/todos
+```
+
+**4. Scale toward 100k–1M RPS** — run multiple app instances behind a load balancer, and scale Redis (cluster or more memory/network). Each instance can do tens of thousands of small-payload req/s when cache is warm.
+
+**Using `hey`:** `go install github.com/rakyll/hey@latest`  
+**Using `autocannon`:** If you see `libsimdjson` error, run `brew reinstall simdjson && brew reinstall node`.
+
 ## Scaling to high RPS
 
-- Run multiple API instances behind a load balancer.
-- Run multiple worker instances (same Kafka consumer group); partitions are shared across instances.
+- **Single box:** Use `GET /todos?limit=100` (or similar) for high RPS; full list is limited by payload size and Redis/network.
+- **Horizontal:** Run multiple API instances behind a load balancer; use a shared Redis (or cluster).
+- Run multiple worker instances (same Kafka consumer group) for write throughput.
 - Tune `DB_POOL_SIZE`, `REDIS_POOL_SIZE`, and Kafka partitions per load.
