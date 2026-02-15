@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync/atomic"
 
 	"million-rps/internal/cache"
@@ -19,18 +20,18 @@ import (
 // One consumer per process; scale by running more replicas (consumer group shares partitions).
 func Run(ctx context.Context) {
 	cfg := config.Get()
-	if len(cfg.KafkaBrokers) == 0 {
+	if cfg.KafkaBrokers == "" {
 		logger.Info(ctx, "Worker disabled (no Kafka brokers)")
 		return
 	}
 	topic := queue.Topic()
-	brokers := queue.Brokers()
-	if len(brokers) == 0 {
+	brokers := cfg.KafkaBrokers
+	if brokers == "" {
 		return
 	}
 
 	reader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:  brokers,
+		Brokers:  strings.Split(cfg.KafkaBrokers, ","),
 		Topic:    topic,
 		GroupID:  "todo-workers",
 		MinBytes: 1,
