@@ -49,8 +49,8 @@ func main() {
 	server := &http.Server{
 		Addr:         ":" + config.Get().HTTPPort,
 		Handler:      routes.Router(),
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 90 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 	go func() {
