@@ -19,10 +19,10 @@ echo "1. Warming cache..."
 curl -sf "$ENDPOINT" > /dev/null && echo "   OK" || echo "   WARN: curl failed"
 echo ""
 
-echo "2. Running hey..."
+echo "2. Running hey (timeout 120s to avoid timeouts under load)..."
 if command -v hey &> /dev/null; then
-  hey -z "${DURATION}s" -c "$CONCURRENCY" -m GET "$ENDPOINT"
+  hey -z "${DURATION}s" -c "$CONCURRENCY" -t 120 -m GET "$ENDPOINT"
 else
   echo "   hey not found. Install: go install github.com/rakyll/hey@latest"
-  echo "   Or use autocannon: autocannon -c $CONCURRENCY -d $DURATION \"$ENDPOINT\""
+  echo "   Or use autocannon: autocannon -c $CONCURRENCY -d $DURATION -t 120 \"$ENDPOINT\""
 fi
