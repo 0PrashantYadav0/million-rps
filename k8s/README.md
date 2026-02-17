@@ -1,51 +1,54 @@
-# Kubernetes deployment for million-rps
+## Kubernetes deployment for million-rps
 
-Deploy the API at scale for high RPS. Uses 10 replicas by default; HPA scales 5–50 based on CPU/memory.
+Run **everything inside the cluster** – Postgres, Redis, Kafka, API, and Service/Ingress – so you can push RPS without relying on Docker Compose.
 
-## Prerequisites
+### Prerequisites
 
-- Kubernetes cluster (minikube, kind, EKS, GKE, etc.)
-- PostgreSQL, Redis, Kafka (in-cluster or external)
-- Docker image built: `docker build -t million-rps:latest .`
+- Kubernetes cluster (minikube, kind, EKS, GKE, etc.).
+- Docker image built locally or pushed to a registry (adjust image name if needed):
 
-## Quick start
+```bash
+docker build -t million-rps:latest .
+```
 
-1. Create namespace and secrets (override with your DB/Redis/Kafka URLs):
-   ```bash
-   kubectl create namespace million-rps
-   kubectl apply -f k8s/secret.yaml -n million-rps
-   kubectl apply -f k8s/configmap.yaml -n million-rps
-   ```
+### Quick start: full stack in K8s
 
-2. Update `k8s/secret.yaml` or create secret manually with real values:
-   ```bash
-   kubectl create secret generic million-rps-secret -n million-rps \
-     --from-literal=DATABASE_URL='postgres://...' \
-     --from-literal=REDIS_URL='redis://...' \
-     --from-literal=KAFKA_BROKERS='kafka:9092' \
-     --from-literal=JWT_SECRET='...'
-   ```
+```bash
+# 1. Create namespace
+kubectl create namespace million-rps
 
-3. Deploy API:
-   ```bash
-   kubectl apply -f k8s/deployment.yaml -n million-rps
-   kubectl apply -f k8s/hpa.yaml -n million-rps
-   ```
+# 2. Deploy in-cluster Postgres, Redis, Kafka
+kubectl apply -f k8s/deps.yaml -n million-rps
 
-4. Expose externally (choose one):
-   - LoadBalancer: `kubectl patch svc million-rps-api -n million-rps -p '{"spec":{"type":"LoadBalancer"}}'`
-   - Ingress: `kubectl apply -f k8s/ingress.yaml -n million-rps` (requires Ingress controller)
+# 3. Apply app config + secrets (DB/Redis/Kafka URLs already point at in-cluster services)
+kubectl apply -f k8s/secret.yaml -n million-rps
+kubectl apply -f k8s/configmap.yaml -n million-rps
 
-5. Warm cache and benchmark:
-   ```bash
-   LB_IP=$(kubectl get svc million-rps-api -n million-rps -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-   curl "http://$LB_IP/todos?limit=100" -o /dev/null
-   hey -z 30s -c 200 "http://$LB_IP/todos?limit=100"
-   ```
+# 4. Deploy API + HPA
+kubectl apply -f k8s/deployment.yaml -n million-rps
+kubectl apply -f k8s/hpa.yaml -n million-rps
 
-## Scaling for 1M RPS
+# 5. Expose externally (choose one)
+#    a) LoadBalancer Service
+kubectl patch svc million-rps-api -n million-rps -p '{"spec":{"type":"LoadBalancer"}}'
 
-- Start with 10–20 replicas; HPA will scale up under load.
-- Use Redis Cluster or a high-memory Redis instance.
-- Ensure load balancer supports high connection count (HAProxy, Envoy, or cloud LB).
-- Use small payloads: `GET /todos?limit=100`.
+#    b) Ingress (requires ingress controller in the cluster)
+kubectl apply -f k8s/ingress.yaml -n million-rps
+```
+
+### Warm cache and benchmark (for high RPS)
+
+Using a LoadBalancer service:
+
+```bash
+LB_IP=$(kubectl get svc million-rps-api -n million-rps -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+# Warm Redis cache on the small-payload path
+curl -s "http://$LB_IP/todos?limit=100" > /dev/null
+
+# Run high-RPS benchmark
+hey -z 60s -c 500 -t 120 "http://$LB_IP/todos?limit=100"
+```
+
+For even higher RPS, run your load generator **inside the cluster** (so the cloud/network LB is not the bottleneck) and hit the `million-rps-api` service directly.
+
